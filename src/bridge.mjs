@@ -181,6 +181,7 @@ async function handleFeishuMessage(data, { feishu, forwarder }) {
   const event = data.event || data;
   const message = event.message || {};
   const chatId = message.chat_id;
+  const messageId = message.message_id;
   const text = extractText(message.content);
   if (!chatId || !text) {
     return;
@@ -200,32 +201,30 @@ async function handleFeishuMessage(data, { feishu, forwarder }) {
     return;
   }
 
-  const prompt = [
-    "[Feishu -> Codex]",
-    `chat_id: ${chatId}`,
-    `received_at: ${new Date().toISOString()}`,
-    "",
-    text
-  ].join("\n");
-
-  await feishu.sendText(chatId, "Received. Forwarding to Codex...");
+  const workingReaction = await addWorkingReaction(feishu, messageId);
   const mark = forwarder.mark();
-  const result = await runCodexResume({
-    sessionId: state.sessionId,
-    cwd: state.cwd,
-    prompt
-  });
+  forwarder.suppressUserMessage(text);
 
-  if (!result.ok) {
-    await feishu.sendText(chatId, [
-      `Codex resume failed with code ${result.code}.`,
-      result.stderr.trim() || "Details were written to ~/.codex/feishu-codex-bridge/codex-resume.log."
-    ].join("\n"));
-    return;
-  }
+  try {
+    const result = await runCodexResume({
+      sessionId: state.sessionId,
+      cwd: state.cwd,
+      prompt: text
+    });
 
-  if (forwarder.countSince(mark) === 0 && result.finalMessage) {
-    await feishu.sendText(chatId, `Codex:\n${result.finalMessage}`);
+    if (!result.ok) {
+      await feishu.sendText(chatId, [
+        `Codex resume failed with code ${result.code}.`,
+        result.stderr.trim() || "Details were written to ~/.codex/feishu-codex-bridge/codex-resume.log."
+      ].join("\n"));
+      return;
+    }
+
+    if (forwarder.countSince(mark) === 0 && result.finalMessage) {
+      await feishu.sendText(chatId, `Codex:\n${result.finalMessage}`);
+    }
+  } finally {
+    await removeWorkingReaction(feishu, workingReaction);
   }
 }
 
@@ -321,6 +320,32 @@ function isProbablyFromSelf(event) {
   const sender = event.sender || {};
   const senderId = sender.sender_id || sender.id || {};
   return sender.sender_type === "app" || senderId.app_id === process.env.FEISHU_APP_ID;
+}
+
+async function addWorkingReaction(feishu, messageId) {
+  if (!messageId) {
+    return null;
+  }
+
+  try {
+    const reactionId = await feishu.addReaction(messageId);
+    return reactionId ? { messageId, reactionId } : null;
+  } catch (error) {
+    console.error(`[bridge] failed to add Feishu working reaction: ${error.message}`);
+    return null;
+  }
+}
+
+async function removeWorkingReaction(feishu, state) {
+  if (!state) {
+    return;
+  }
+
+  try {
+    await feishu.removeReaction(state.messageId, state.reactionId);
+  } catch (error) {
+    console.error(`[bridge] failed to remove Feishu working reaction: ${error.message}`);
+  }
 }
 
 function readPid() {

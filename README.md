@@ -9,8 +9,9 @@ The Mac remains the execution host. Feishu only carries prompts, confirmations, 
 1. Copy `.env.example` to `.env` and fill in `FEISHU_APP_ID` and `FEISHU_APP_SECRET`.
 2. In the Feishu developer console, enable bot capability.
 3. Subscribe to the `im.message.receive_v1` event.
-4. Use long-connection event delivery for local development, so the Mac does not need a public callback URL.
-5. Add the bot to the target chat.
+4. Enable message reaction permissions if you want the remote working indicator.
+5. Use long-connection event delivery for local development, so the Mac does not need a public callback URL.
+6. Add the bot to the target chat.
 
 Install dependencies:
 
@@ -55,6 +56,15 @@ codex exec resume <session-id> <your-feishu-message>
 ```
 
 Codex responses are sent back to the same Feishu chat.
+
+While a Feishu message is being handled, the bridge adds a `Typing` reaction to
+that message and removes it after the Codex run finishes or fails. Override the
+reaction with `FEISHU_BRIDGE_WORKING_EMOJI`.
+
+Feishu inputs are forwarded as plain Codex user messages, so the selected Codex
+session history stays readable on the Mac side. The bridge suppresses echoing
+those same user messages back to Feishu; desktop-originated user messages are
+still mirrored to Feishu.
 
 ## Return To Desktop
 

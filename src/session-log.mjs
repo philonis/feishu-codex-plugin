@@ -6,6 +6,7 @@ export class SessionLogForwarder {
     this.feishu = feishu;
     this.timer = null;
     this.forwardCounts = new Map();
+    this.suppressedUserMessages = new Map();
   }
 
   start() {
@@ -32,6 +33,14 @@ export class SessionLogForwarder {
 
   mark() {
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  suppressUserMessage(message) {
+    const key = normalizeMessage(message);
+    if (!key) {
+      return;
+    }
+    this.suppressedUserMessages.set(key, (this.suppressedUserMessages.get(key) || 0) + 1);
   }
 
   async tick() {
@@ -94,7 +103,7 @@ export class SessionLogForwarder {
     const payload = record.payload || {};
     if (payload.type === "user_message") {
       const message = cleanMessage(payload.message);
-      if (!message || message.startsWith("[Feishu -> Codex]")) {
+      if (!message || this.consumeSuppressedUserMessage(message)) {
         return;
       }
       await this.feishu.sendText(chatId, `Codex user:\n${message}`);
@@ -112,8 +121,26 @@ export class SessionLogForwarder {
       }
     }
   }
+
+  consumeSuppressedUserMessage(message) {
+    const key = normalizeMessage(message);
+    const count = this.suppressedUserMessages.get(key) || 0;
+    if (count <= 0) {
+      return false;
+    }
+    if (count === 1) {
+      this.suppressedUserMessages.delete(key);
+    } else {
+      this.suppressedUserMessages.set(key, count - 1);
+    }
+    return true;
+  }
 }
 
 function cleanMessage(value) {
   return String(value || "").trim();
+}
+
+function normalizeMessage(value) {
+  return cleanMessage(value).replace(/\r\n/g, "\n");
 }

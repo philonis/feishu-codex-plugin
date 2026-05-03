@@ -2,6 +2,7 @@ import { requiredEnv, optionalEnv } from "./env.mjs";
 
 const DEFAULT_BASE_URL = "https://open.feishu.cn";
 const JSON_CONTENT_TYPE = "application/json; charset=utf-8";
+const DEFAULT_WORKING_EMOJI = "Typing";
 
 let tenantTokenCache = null;
 
@@ -98,6 +99,29 @@ export class FeishuClient {
       }));
     }
     return results;
+  }
+
+  async addReaction(messageId, emojiType = optionalEnv("FEISHU_BRIDGE_WORKING_EMOJI", DEFAULT_WORKING_EMOJI)) {
+    const data = await this.apiRequest({
+      method: "POST",
+      path: `/im/v1/messages/${encodeURIComponent(messageId)}/reactions`,
+      body: {
+        reaction_type: {
+          emoji_type: emojiType
+        }
+      }
+    });
+    return data.data?.reaction_id || "";
+  }
+
+  async removeReaction(messageId, reactionId) {
+    if (!messageId || !reactionId) {
+      return;
+    }
+    await this.apiRequest({
+      method: "DELETE",
+      path: `/im/v1/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(reactionId)}`
+    });
   }
 }
 
