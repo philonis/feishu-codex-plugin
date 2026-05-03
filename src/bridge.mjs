@@ -24,6 +24,9 @@ loadDotEnv();
 
 const command = process.argv[2] || "help";
 const flags = parseFlags(process.argv.slice(3));
+const recentFeishuMessages = new Map();
+let feishuMessageQueue = Promise.resolve();
+const FEISHU_MESSAGE_DEDUPE_TTL_MS = 10 * 60_000;
 
 try {
   if (command === "enable" || command === "handoff") {
@@ -149,8 +152,8 @@ async function runDaemon() {
   const dispatcher = new Lark.EventDispatcher({
     loggerLevel: Lark.LoggerLevel.info
   }).register({
-    "im.message.receive_v1": async (data) => {
-      await handleFeishuMessage(data, { feishu, forwarder });
+    "im.message.receive_v1": (data) => {
+      enqueueFeishuMessage(data, { feishu, forwarder });
     }
   });
 
@@ -177,6 +180,23 @@ async function runDaemon() {
   await wsClient.start({ eventDispatcher: dispatcher });
 }
 
+function enqueueFeishuMessage(data, context) {
+  const key = feishuMessageKey(data);
+  if (key && isRecentFeishuMessage(key)) {
+    console.log(`[bridge] duplicate Feishu message ignored: ${key}`);
+    return;
+  }
+
+  feishuMessageQueue = feishuMessageQueue
+    .catch((error) => {
+      console.error(`[bridge] previous Feishu message failed: ${error.stack || error.message}`);
+    })
+    .then(() => handleFeishuMessage(data, context))
+    .catch((error) => {
+      console.error(`[bridge] Feishu message failed: ${error.stack || error.message}`);
+    });
+}
+
 async function handleFeishuMessage(data, { feishu, forwarder }) {
   const event = data.event || data;
   const message = event.message || {};
@@ -201,6 +221,7 @@ async function handleFeishuMessage(data, { feishu, forwarder }) {
     return;
   }
 
+  console.log(`[bridge] processing Feishu message: ${messageId || "(no message_id)"}`);
   const workingReaction = await addWorkingReaction(feishu, messageId);
   const mark = forwarder.mark();
   forwarder.suppressUserMessage(text);
@@ -225,6 +246,7 @@ async function handleFeishuMessage(data, { feishu, forwarder }) {
     }
   } finally {
     await removeWorkingReaction(feishu, workingReaction);
+    console.log(`[bridge] finished Feishu message: ${messageId || "(no message_id)"}`);
   }
 }
 
@@ -320,6 +342,38 @@ function isProbablyFromSelf(event) {
   const sender = event.sender || {};
   const senderId = sender.sender_id || sender.id || {};
   return sender.sender_type === "app" || senderId.app_id === process.env.FEISHU_APP_ID;
+}
+
+function feishuMessageKey(data) {
+  const event = data.event || data;
+  const message = event.message || {};
+  if (message.message_id) {
+    return message.message_id;
+  }
+
+  const chatId = message.chat_id || "";
+  const text = extractText(message.content);
+  const createTime = message.create_time || message.createTime || "";
+  if (!chatId || !text) {
+    return "";
+  }
+  return `${chatId}:${createTime}:${text}`;
+}
+
+function isRecentFeishuMessage(key) {
+  const now = Date.now();
+  for (const [messageKey, seenAt] of recentFeishuMessages) {
+    if (now - seenAt > FEISHU_MESSAGE_DEDUPE_TTL_MS) {
+      recentFeishuMessages.delete(messageKey);
+    }
+  }
+
+  if (recentFeishuMessages.has(key)) {
+    return true;
+  }
+
+  recentFeishuMessages.set(key, now);
+  return false;
 }
 
 async function addWorkingReaction(feishu, messageId) {

@@ -66,6 +66,10 @@ session history stays readable on the Mac side. The bridge suppresses echoing
 those same user messages back to Feishu; desktop-originated user messages are
 still mirrored to Feishu.
 
+Incoming Feishu events are acknowledged immediately, deduped by `message_id`,
+and processed serially. This avoids Feishu retrying the same message while a
+long Codex turn is still running.
+
 ## Return To Desktop
 
 From Codex:
