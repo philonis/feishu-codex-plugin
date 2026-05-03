@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -34,11 +34,12 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
       stderr += chunk.toString("utf8");
     });
     child.on("error", (error) => {
+      logCodexOutput({ stdout, stderr: `${stderr}\n${error.message}`.trim() });
       resolve({
         ok: false,
         code: -1,
         stdout,
-        stderr: `${stderr}\n${error.message}`.trim(),
+        stderr: summarizeCodexError(`${stderr}\n${error.message}`),
         finalMessage: ""
       });
     });
@@ -46,15 +47,66 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
       const finalMessage = existsSync(outputPath)
         ? readFileSync(outputPath, "utf8").trim()
         : "";
+      if (code !== 0) {
+        logCodexOutput({ stdout, stderr });
+      }
       resolve({
         ok: code === 0,
         code,
         stdout,
-        stderr,
+        stderr: summarizeCodexError(stderr || stdout),
         finalMessage
       });
     });
 
     child.stdin.end(prompt);
   });
+}
+
+function summarizeCodexError(value) {
+  const lines = String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !isNoisyCodexLine(line));
+
+  const important = lines.find((line) => /^(Error:|error:|ERROR\b)/i.test(line))
+    || lines.find((line) => /thread\/resume|failed to connect|stream disconnected|usage|unauthorized|rate/i.test(line))
+    || lines[0]
+    || "Codex exited without a useful error message.";
+
+  return truncate(important, 500);
+}
+
+function isNoisyCodexLine(line) {
+  return [
+    /\bWARN\b.*codex_core::plugins::manifest/,
+    /ignoring interface\.defaultPrompt/,
+    /maximum of 3 prompts is supported/,
+    /prompt must be at most 128 characters/,
+    /migration \d+ was previously applied/,
+    /codex_state::runtime: failed to open state db/
+  ].some((pattern) => pattern.test(line));
+}
+
+function logCodexOutput({ stdout, stderr }) {
+  const path = "/absolute/path/to/.codex/feishu-codex-bridge/codex-resume.log";
+  const body = [
+    `\n--- ${new Date().toISOString()} ---`,
+    stdout ? `[stdout]\n${stdout.trim()}` : "",
+    stderr ? `[stderr]\n${stderr.trim()}` : ""
+  ].filter(Boolean).join("\n");
+  try {
+    appendFileSync(path, `${body}\n`);
+  } catch {
+    // Best effort logging only.
+  }
+}
+
+function truncate(value, maxLength) {
+  const text = String(value || "");
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 3)}...`;
 }

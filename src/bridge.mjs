@@ -219,7 +219,7 @@ async function handleFeishuMessage(data, { feishu, forwarder }) {
   if (!result.ok) {
     await feishu.sendText(chatId, [
       `Codex resume failed with code ${result.code}.`,
-      result.stderr.trim() || result.stdout.trim() || "(no output)"
+      result.stderr.trim() || "Details were written to ~/.codex/feishu-codex-bridge/codex-resume.log."
     ].join("\n"));
     return;
   }
