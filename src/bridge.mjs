@@ -176,9 +176,10 @@ async function runDaemon() {
 }
 
 function enqueueFeishuMessage(data, context) {
+  const receivedAt = Date.now();
   const key = feishuMessageKey(data);
   if (key && isRecentFeishuMessage(key)) {
-    console.log(`[bridge] duplicate Feishu message ignored: ${key}`);
+    logBridge("duplicate Feishu message ignored", { key });
     return;
   }
 
@@ -186,13 +187,13 @@ function enqueueFeishuMessage(data, context) {
     .catch((error) => {
       console.error(`[bridge] previous Feishu message failed: ${error.stack || error.message}`);
     })
-    .then(() => handleFeishuMessage(data, context))
+    .then(() => handleFeishuMessage(data, { ...context, receivedAt }))
     .catch((error) => {
       console.error(`[bridge] Feishu message failed: ${error.stack || error.message}`);
     });
 }
 
-async function handleFeishuMessage(data, { feishu }) {
+async function handleFeishuMessage(data, { feishu, receivedAt }) {
   const event = data.event || data;
   const message = event.message || {};
   const chatId = message.chat_id;
@@ -216,30 +217,63 @@ async function handleFeishuMessage(data, { feishu }) {
     return;
   }
 
-  console.log(`[bridge] processing Feishu message: ${messageId || "(no message_id)"}`);
-  const workingReaction = await addWorkingReaction(feishu, messageId);
+  const startedAt = Date.now();
+  logBridge("processing Feishu message", {
+    message_id: messageId || "",
+    queue_ms: startedAt - receivedAt,
+    delivery_ms: deliveryDelayMs(message, receivedAt),
+    text_chars: text.length
+  });
+  const workingReactionPromise = addWorkingReaction(feishu, messageId);
 
   try {
+    const codexStartedAt = Date.now();
     const result = await runCodexResume({
       sessionId: state.sessionId,
       cwd: state.cwd,
       prompt: text
     });
+    logBridge("codex resume finished", {
+      message_id: messageId || "",
+      ok: result.ok,
+      code: result.code,
+      ms: Date.now() - codexStartedAt,
+      codex_ms: result.timing?.totalMs,
+      first_stdout_ms: result.timing?.firstStdoutMs,
+      first_stderr_ms: result.timing?.firstStderrMs,
+      stdout_bytes: result.timing?.stdoutBytes,
+      stderr_bytes: result.timing?.stderrBytes,
+      final_chars: result.timing?.finalChars
+    });
 
     if (!result.ok) {
+      const sendStartedAt = Date.now();
       await feishu.sendText(chatId, [
         `Codex resume failed with code ${result.code}.`,
         result.stderr.trim() || "Details were written to ~/.codex/feishu-codex-bridge/codex-resume.log."
       ].join("\n"));
+      logBridge("sent Feishu error", {
+        message_id: messageId || "",
+        ms: Date.now() - sendStartedAt
+      });
       return;
     }
 
     if (result.finalMessage) {
+      const sendStartedAt = Date.now();
       await feishu.sendMarkdown(chatId, result.finalMessage);
+      logBridge("sent Feishu markdown", {
+        message_id: messageId || "",
+        ms: Date.now() - sendStartedAt,
+        chars: result.finalMessage.length
+      });
     }
   } finally {
-    await removeWorkingReaction(feishu, workingReaction);
-    console.log(`[bridge] finished Feishu message: ${messageId || "(no message_id)"}`);
+    logBridge("response path finished", {
+      message_id: messageId || "",
+      total_ms: Date.now() - startedAt
+    });
+    cleanupWorkingReaction(feishu, workingReactionPromise, messageId);
   }
 }
 
@@ -374,11 +408,21 @@ async function addWorkingReaction(feishu, messageId) {
     return null;
   }
 
+  const startedAt = Date.now();
   try {
     const reactionId = await feishu.addReaction(messageId);
+    logBridge("added Feishu working reaction", {
+      message_id: messageId,
+      ms: Date.now() - startedAt,
+      added: Boolean(reactionId)
+    });
     return reactionId ? { messageId, reactionId } : null;
   } catch (error) {
-    console.error(`[bridge] failed to add Feishu working reaction: ${error.message}`);
+    logBridge("failed to add Feishu working reaction", {
+      message_id: messageId,
+      ms: Date.now() - startedAt,
+      error: error.message
+    });
     return null;
   }
 }
@@ -388,11 +432,54 @@ async function removeWorkingReaction(feishu, state) {
     return;
   }
 
+  const startedAt = Date.now();
   try {
     await feishu.removeReaction(state.messageId, state.reactionId);
+    logBridge("removed Feishu working reaction", {
+      message_id: state.messageId,
+      ms: Date.now() - startedAt
+    });
   } catch (error) {
-    console.error(`[bridge] failed to remove Feishu working reaction: ${error.message}`);
+    logBridge("failed to remove Feishu working reaction", {
+      message_id: state.messageId,
+      ms: Date.now() - startedAt,
+      error: error.message
+    });
   }
+}
+
+function cleanupWorkingReaction(feishu, workingReactionPromise, messageId) {
+  workingReactionPromise
+    .then((workingReaction) => removeWorkingReaction(feishu, workingReaction))
+    .catch((error) => {
+      logBridge("working reaction cleanup failed", {
+        message_id: messageId || "",
+        error: error.message
+      });
+    });
+}
+
+function deliveryDelayMs(message, receivedAt) {
+  const raw = message.create_time || message.createTime || "";
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  const createdAt = value > 10_000_000_000 ? value : value * 1000;
+  return receivedAt - createdAt;
+}
+
+function logBridge(message, fields = {}) {
+  const suffix = Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}=${formatLogValue(value)}`)
+    .join(" ");
+  console.log(`[bridge] ${new Date().toISOString()} ${message}${suffix ? ` ${suffix}` : ""}`);
+}
+
+function formatLogValue(value) {
+  const text = String(value).replace(/\s+/g, " ");
+  return text.includes(" ") ? JSON.stringify(text) : text;
 }
 
 function readPid() {

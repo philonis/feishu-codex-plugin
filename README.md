@@ -23,6 +23,10 @@ npm install
 The bridge defaults nested Codex CLI runs to `gpt-5.5`. Override with
 `CODEX_BRIDGE_MODEL` if you want to pin a different model.
 
+By default, Feishu-initiated turns inherit the selected Codex session's
+reasoning effort. For faster remote feedback, set
+`CODEX_BRIDGE_REASONING_EFFORT=medium` or `low` in `.env`.
+
 ## Handoff A Session
 
 From Codex, use the installed slash prompt:
@@ -62,6 +66,10 @@ messages, so normal Markdown formatting renders in Feishu.
 While a Feishu message is being handled, the bridge adds a `Typing` reaction to
 that message and removes it after the Codex run finishes or fails. Override the
 reaction with `FEISHU_BRIDGE_WORKING_EMOJI`.
+
+The bridge logs per-message latency to
+`~/.codex/feishu-codex-bridge/daemon.log`, including queue time, Feishu event
+delivery time, Codex resume time, Feishu send time, and reaction API time.
 
 Feishu inputs are forwarded as plain Codex user messages through
 `codex exec resume`, so the selected Codex session history stays readable and

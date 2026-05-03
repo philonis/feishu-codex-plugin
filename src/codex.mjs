@@ -5,11 +5,13 @@ import { join } from "node:path";
 
 export function runCodexResume({ sessionId, cwd, prompt }) {
   return new Promise((resolve) => {
+    const startedAt = Date.now();
     const outputDir = join(tmpdir(), "feishu-codex-bridge");
     mkdirSync(outputDir, { recursive: true });
     const outputPath = join(outputDir, `codex-${Date.now()}.txt`);
     const codexBin = process.env.CODEX_BRIDGE_CODEX_BIN || "codex";
     const model = process.env.CODEX_BRIDGE_MODEL || "gpt-5.5";
+    const effort = process.env.CODEX_BRIDGE_REASONING_EFFORT || "";
     const args = [
       "exec",
       "resume",
@@ -21,6 +23,9 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
       sessionId,
       "-"
     ];
+    if (effort) {
+      args.splice(2, 0, "-c", `model_reasoning_effort=${effort}`);
+    }
 
     const child = spawn(codexBin, args, {
       cwd: cwd || process.cwd(),
@@ -30,10 +35,18 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
 
     let stdout = "";
     let stderr = "";
+    let firstStdoutAt = 0;
+    let firstStderrAt = 0;
     child.stdout.on("data", (chunk) => {
+      if (!firstStdoutAt) {
+        firstStdoutAt = Date.now();
+      }
       stdout += chunk.toString("utf8");
     });
     child.stderr.on("data", (chunk) => {
+      if (!firstStderrAt) {
+        firstStderrAt = Date.now();
+      }
       stderr += chunk.toString("utf8");
     });
     child.on("error", (error) => {
@@ -43,7 +56,15 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
         code: -1,
         stdout,
         stderr: summarizeCodexError(`${stderr}\n${error.message}`),
-        finalMessage: ""
+        finalMessage: "",
+        timing: buildTiming({
+          startedAt,
+          firstStdoutAt,
+          firstStderrAt,
+          stdout,
+          stderr,
+          finalMessage: ""
+        })
       });
     });
     child.on("close", (code) => {
@@ -58,12 +79,31 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
         code,
         stdout,
         stderr: summarizeCodexError(stderr || stdout),
-        finalMessage
+        finalMessage,
+        timing: buildTiming({
+          startedAt,
+          firstStdoutAt,
+          firstStderrAt,
+          stdout,
+          stderr,
+          finalMessage
+        })
       });
     });
 
     child.stdin.end(prompt);
   });
+}
+
+function buildTiming({ startedAt, firstStdoutAt, firstStderrAt, stdout, stderr, finalMessage }) {
+  return {
+    totalMs: Date.now() - startedAt,
+    firstStdoutMs: firstStdoutAt ? firstStdoutAt - startedAt : null,
+    firstStderrMs: firstStderrAt ? firstStderrAt - startedAt : null,
+    stdoutBytes: Buffer.byteLength(stdout || "", "utf8"),
+    stderrBytes: Buffer.byteLength(stderr || "", "utf8"),
+    finalChars: String(finalMessage || "").length
+  };
 }
 
 function buildCodexEnv() {
