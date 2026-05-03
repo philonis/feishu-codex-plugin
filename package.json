@@ -1,9 +1,9 @@
 {
-  "name": "feishu-codex-bridge",
+  "name": "feishu-codex-plugin",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Optional per-session bridge between Feishu bot chats and local Codex CLI sessions.",
+  "description": "Optional Feishu control plugin for local Codex sessions.",
   "scripts": {
     "start": "node src/bridge.mjs run",
     "bridge": "node src/bridge.mjs",

@@ -81,7 +81,7 @@ async function enable(options) {
     `session: ${sessionId}`,
     `cwd: ${cwd}`,
     "Send messages here to continue the selected Codex session.",
-    "Use /codex off to disable."
+    "Slash commands are handled locally. Use /help for commands."
   ].join("\n"));
 }
 
@@ -183,6 +183,14 @@ function enqueueFeishuMessage(data, context) {
     return;
   }
 
+  if (isFastBridgeCommand(data)) {
+    handleFeishuMessage(data, { ...context, receivedAt })
+      .catch((error) => {
+        console.error(`[bridge] Feishu command failed: ${error.stack || error.message}`);
+      });
+    return;
+  }
+
   feishuMessageQueue = feishuMessageQueue
     .catch((error) => {
       console.error(`[bridge] previous Feishu message failed: ${error.stack || error.message}`);
@@ -204,7 +212,7 @@ async function handleFeishuMessage(data, { feishu, receivedAt }) {
   }
 
   const state = readState();
-  if (!state.active || chatId !== state.chatId) {
+  if (chatId !== state.chatId) {
     return;
   }
 
@@ -212,17 +220,25 @@ async function handleFeishuMessage(data, { feishu, receivedAt }) {
     return;
   }
 
-  const commandResult = await handleBridgeCommand(text, state, feishu);
+  const commandResult = await handleBridgeCommand(text, state, feishu, {
+    message,
+    messageId,
+    receivedAt
+  });
   if (commandResult.handled) {
     return;
   }
+  if (!state.active) {
+    return;
+  }
 
+  const resumePrompt = commandResult.prompt || text;
   const startedAt = Date.now();
   logBridge("processing Feishu message", {
     message_id: messageId || "",
     queue_ms: startedAt - receivedAt,
     delivery_ms: deliveryDelayMs(message, receivedAt),
-    text_chars: text.length
+    text_chars: resumePrompt.length
   });
   const workingReactionPromise = addWorkingReaction(feishu, messageId);
 
@@ -231,7 +247,7 @@ async function handleFeishuMessage(data, { feishu, receivedAt }) {
     const result = await runCodexResume({
       sessionId: state.sessionId,
       cwd: state.cwd,
-      prompt: text
+      prompt: resumePrompt
     });
     logBridge("codex resume finished", {
       message_id: messageId || "",
@@ -277,41 +293,56 @@ async function handleFeishuMessage(data, { feishu, receivedAt }) {
   }
 }
 
-async function handleBridgeCommand(text, state, feishu) {
-  const normalized = text.trim();
-  if (!normalized.startsWith("/codex")) {
+async function handleBridgeCommand(text, state, feishu, context = {}) {
+  const parsed = parseBridgeCommand(text);
+  if (!parsed) {
     return { handled: false };
   }
 
-  const rest = normalized.slice("/codex".length).trim();
-  if (!rest || rest === "help") {
-    await feishu.sendText(state.chatId, [
-      "Codex bridge commands:",
-      "/codex status",
-      "/codex off",
-      "/codex help",
+  const send = (body, command = parsed.command) =>
+    sendBridgeCommandResponse(feishu, state, body, { ...context, command });
+
+  if (parsed.command === "help") {
+    return send([
+      "Feishu Codex bridge commands:",
+      "/ping",
+      "/status",
+      "/off",
+      "/help",
       "",
-      "Any other message is forwarded to the active Codex session."
+      "Compatibility aliases also work: /codex ping, /codex status, /codex off, /codex help.",
+      "Any message that does not start with / is forwarded to the active Codex session."
     ].join("\n"));
-    return { handled: true };
   }
 
-  if (rest === "status") {
-    await feishu.sendText(state.chatId, displayStatus(state));
-    return { handled: true };
+  if (parsed.command === "ping") {
+    return send("pong");
   }
 
-  if (["off", "disable", "stop"].includes(rest)) {
+  if (parsed.command === "status") {
+    return send(displayFeishuStatus(state));
+  }
+
+  if (["off", "disable", "stop"].includes(parsed.command)) {
     writeState({
       ...state,
       active: false,
       disabledAt: new Date().toISOString()
     });
-    await feishu.sendText(state.chatId, "Codex bridge disabled.");
-    return { handled: true };
+    return send("Codex bridge disabled.");
   }
 
-  return { handled: false };
+  if (["ask", "resume", "run"].includes(parsed.command)) {
+    return send([
+      "Slash commands are local-only in Feishu.",
+      "Send the message without a leading / to forward it to Codex."
+    ].join("\n"));
+  }
+
+  return send([
+    `Unknown local command: /${parsed.command}`,
+    "Use /help for available bridge commands."
+  ].join("\n"));
 }
 
 async function sendTest(options) {
@@ -363,6 +394,99 @@ function extractText(content) {
   } catch {
     return String(content || "").trim();
   }
+}
+
+function isFastBridgeCommand(data) {
+  const event = data.event || data;
+  const message = event.message || {};
+  return Boolean(parseBridgeCommand(extractText(message.content)));
+}
+
+function parseBridgeCommand(text) {
+  const normalized = String(text || "").trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.toLowerCase() === "ping") {
+    return {
+      command: "ping",
+      rest: "",
+      raw: normalized
+    };
+  }
+
+  if (!normalized.startsWith("/")) {
+    return null;
+  }
+
+  const body = normalized.slice(1).trim();
+  if (!body) {
+    return {
+      command: "help",
+      rest: "",
+      raw: normalized
+    };
+  }
+
+  const first = firstToken(body).toLowerCase();
+  const firstRest = body.slice(first.length).trim();
+  if (first === "codex") {
+    if (!firstRest) {
+      return {
+        command: "help",
+        rest: "",
+        raw: normalized
+      };
+    }
+    const subcommand = firstToken(firstRest).toLowerCase();
+    return {
+      command: normalizeBridgeCommand(subcommand),
+      rest: firstRest.slice(subcommand.length).trim(),
+      raw: normalized
+    };
+  }
+
+  return {
+    command: normalizeBridgeCommand(first),
+    rest: body.slice(first.length).trim(),
+    raw: normalized
+  };
+}
+
+function firstToken(value) {
+  return String(value || "").trim().split(/\s+/, 1)[0] || "";
+}
+
+function normalizeBridgeCommand(command) {
+  if (["?", "h"].includes(command)) {
+    return "help";
+  }
+  return command;
+}
+
+async function sendBridgeCommandResponse(feishu, state, body, context = {}) {
+  const startedAt = Date.now();
+  await feishu.sendText(state.chatId, body);
+  logBridge("handled Feishu local command", {
+    message_id: context.messageId || "",
+    command: context.command || "",
+    queue_ms: context.receivedAt ? startedAt - context.receivedAt : null,
+    delivery_ms: context.message && context.receivedAt
+      ? deliveryDelayMs(context.message, context.receivedAt)
+      : null,
+    ms: Date.now() - startedAt
+  });
+  return { handled: true };
+}
+
+function displayFeishuStatus(state) {
+  return [
+    displayStatus(state),
+    `model: ${process.env.CODEX_BRIDGE_MODEL || "gpt-5.5"}`,
+    `reasoning_effort: ${process.env.CODEX_BRIDGE_REASONING_EFFORT || "(session default)"}`,
+    "slash_commands: local-only"
+  ].join("\n");
 }
 
 function isProbablyFromSelf(event) {

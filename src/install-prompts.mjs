@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { homedir } from "node:os";
 import { PROJECT_ROOT } from "./env.mjs";
@@ -17,7 +17,11 @@ for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
     continue;
   }
 
-  copyFileSync(resolve(sourceDir, entry.name), resolve(targetDir, entry.name));
+  const sourcePath = resolve(sourceDir, entry.name);
+  const targetPath = resolve(targetDir, entry.name);
+  const body = readFileSync(sourcePath, "utf8")
+    .replaceAll("__PLUGIN_DIR__", PROJECT_ROOT);
+  writeFileSync(targetPath, body);
   count += 1;
   console.log(`installed /prompts:${basename(entry.name, ".md")}`);
 }
