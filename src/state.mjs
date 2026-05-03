@@ -68,24 +68,18 @@ export function defaultState() {
   };
 }
 
-export function resolveSessionId(value) {
+export function resolveSessionId(value, options = {}) {
   const requested = value || process.env.CODEX_BRIDGE_SESSION_ID || "last";
   if (requested !== "last") {
     return requested;
   }
 
-  const indexPath = join(codexHome(), "session_index.jsonl");
-  const raw = readFileSync(indexPath, "utf8").trim();
-  if (!raw) {
-    throw new Error(`No Codex sessions found in ${indexPath}.`);
+  const latest = findLatestSession({ cwd: options.cwd });
+  if (latest?.id) {
+    return latest.id;
   }
 
-  const lines = raw.split(/\r?\n/).filter(Boolean);
-  const latest = JSON.parse(lines[lines.length - 1]);
-  if (!latest.id) {
-    throw new Error(`Latest session index entry has no id in ${indexPath}.`);
-  }
-  return latest.id;
+  throw new Error(`No resumable Codex session rollout found in ${join(codexHome(), "sessions")}.`);
 }
 
 export function findSessionLog(sessionId) {
@@ -105,6 +99,38 @@ export function findSessionLog(sessionId) {
   return matches[matches.length - 1] || "";
 }
 
+export function findLatestSession({ cwd } = {}) {
+  const root = join(codexHome(), "sessions");
+  if (!existsSync(root)) {
+    return null;
+  }
+
+  const candidates = [];
+  walk(root, (path) => {
+    if (!basename(path).startsWith("rollout-") || !path.endsWith(".jsonl")) {
+      return;
+    }
+
+    const meta = readSessionMeta(path);
+    if (!meta.id) {
+      return;
+    }
+    if (cwd && meta.cwd !== cwd) {
+      return;
+    }
+
+    candidates.push({
+      id: meta.id,
+      cwd: meta.cwd || "",
+      path,
+      mtimeMs: statSync(path).mtimeMs
+    });
+  });
+
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates[0] || null;
+}
+
 export function getFileSize(path) {
   if (!path || !existsSync(path)) {
     return 0;
@@ -121,6 +147,19 @@ export function displayStatus(state = readState()) {
     `state: ${statePath()}`,
     `log: ${logPath()}`
   ].join("\n");
+}
+
+function readSessionMeta(path) {
+  try {
+    const firstLine = readFileSync(path, "utf8").split(/\r?\n/, 1)[0];
+    const record = JSON.parse(firstLine);
+    if (record.type !== "session_meta") {
+      return {};
+    }
+    return record.payload || {};
+  } catch {
+    return {};
+  }
 }
 
 function walk(dir, onFile) {

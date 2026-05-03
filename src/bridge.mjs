@@ -49,9 +49,9 @@ try {
 }
 
 async function enable(options) {
-  const sessionId = resolveSessionId(options.session);
   const chatId = options.chatId || optionalEnv("FEISHU_BRIDGE_CHAT_ID");
   const cwd = resolve(options.cwd || optionalEnv("CODEX_BRIDGE_CWD", process.cwd()));
+  const sessionId = resolveSessionId(options.session, { cwd });
   if (!chatId) {
     throw new Error("Missing --chat-id or FEISHU_BRIDGE_CHAT_ID.");
   }
