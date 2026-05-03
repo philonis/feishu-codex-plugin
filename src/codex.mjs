@@ -9,9 +9,12 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
     mkdirSync(outputDir, { recursive: true });
     const outputPath = join(outputDir, `codex-${Date.now()}.txt`);
     const codexBin = process.env.CODEX_BRIDGE_CODEX_BIN || "codex";
+    const model = process.env.CODEX_BRIDGE_MODEL || "gpt-5.4";
     const args = [
       "exec",
       "resume",
+      "-m",
+      model,
       "--skip-git-repo-check",
       "-o",
       outputPath,
@@ -21,7 +24,7 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
 
     const child = spawn(codexBin, args, {
       cwd: cwd || process.cwd(),
-      env: process.env,
+      env: buildCodexEnv(),
       stdio: ["pipe", "pipe", "pipe"]
     });
 
@@ -61,6 +64,33 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
 
     child.stdin.end(prompt);
   });
+}
+
+function buildCodexEnv() {
+  if (process.env.CODEX_BRIDGE_INHERIT_OPENAI_ENV === "1") {
+    return process.env;
+  }
+
+  const env = { ...process.env };
+
+  // The bridge is often launched from inside Codex Desktop. Those sessions can
+  // carry API proxy variables that are valid for the parent app but break the
+  // nested `codex exec resume` subprocess.
+  delete env.OPENAI_BASE_URL;
+  delete env.OPENAI_API_KEY;
+  delete env.CODEX_THREAD_ID;
+  delete env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE;
+  delete env.CODEX_CI;
+  delete env.CODEX_SHELL;
+
+  if (process.env.CODEX_BRIDGE_OPENAI_BASE_URL) {
+    env.OPENAI_BASE_URL = process.env.CODEX_BRIDGE_OPENAI_BASE_URL;
+  }
+  if (process.env.CODEX_BRIDGE_OPENAI_API_KEY) {
+    env.OPENAI_API_KEY = process.env.CODEX_BRIDGE_OPENAI_API_KEY;
+  }
+
+  return env;
 }
 
 function summarizeCodexError(value) {
