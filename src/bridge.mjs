@@ -242,9 +242,11 @@ async function handleFeishuMessage(data, { feishu, forwarder }) {
     }
 
     if (forwarder.countSince(mark) === 0 && result.finalMessage) {
+      forwarder.suppressAgentMessage(result.finalMessage);
       await feishu.sendText(chatId, `Codex:\n${result.finalMessage}`);
     }
   } finally {
+    forwarder.forgetMark(mark);
     await removeWorkingReaction(feishu, workingReaction);
     console.log(`[bridge] finished Feishu message: ${messageId || "(no message_id)"}`);
   }

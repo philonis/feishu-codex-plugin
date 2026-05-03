@@ -7,6 +7,7 @@ export class SessionLogForwarder {
     this.timer = null;
     this.forwardCounts = new Map();
     this.suppressedUserMessages = new Map();
+    this.suppressedAgentMessages = new Map();
   }
 
   start() {
@@ -32,15 +33,21 @@ export class SessionLogForwarder {
   }
 
   mark() {
-    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const mark = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    this.forwardCounts.set(mark, 0);
+    return mark;
+  }
+
+  forgetMark(mark) {
+    this.forwardCounts.delete(mark);
   }
 
   suppressUserMessage(message) {
-    const key = normalizeMessage(message);
-    if (!key) {
-      return;
-    }
-    this.suppressedUserMessages.set(key, (this.suppressedUserMessages.get(key) || 0) + 1);
+    suppressMessage(this.suppressedUserMessages, message);
+  }
+
+  suppressAgentMessage(message) {
+    suppressMessage(this.suppressedAgentMessages, message);
   }
 
   async tick() {
@@ -112,7 +119,7 @@ export class SessionLogForwarder {
 
     if (payload.type === "agent_message") {
       const message = cleanMessage(payload.message);
-      if (!message) {
+      if (!message || this.consumeSuppressedAgentMessage(message)) {
         return;
       }
       await this.feishu.sendText(chatId, `Codex:\n${message}`);
@@ -123,17 +130,11 @@ export class SessionLogForwarder {
   }
 
   consumeSuppressedUserMessage(message) {
-    const key = normalizeMessage(message);
-    const count = this.suppressedUserMessages.get(key) || 0;
-    if (count <= 0) {
-      return false;
-    }
-    if (count === 1) {
-      this.suppressedUserMessages.delete(key);
-    } else {
-      this.suppressedUserMessages.set(key, count - 1);
-    }
-    return true;
+    return consumeSuppressedMessage(this.suppressedUserMessages, message);
+  }
+
+  consumeSuppressedAgentMessage(message) {
+    return consumeSuppressedMessage(this.suppressedAgentMessages, message);
   }
 }
 
@@ -143,4 +144,26 @@ function cleanMessage(value) {
 
 function normalizeMessage(value) {
   return cleanMessage(value).replace(/\r\n/g, "\n");
+}
+
+function suppressMessage(map, message) {
+  const key = normalizeMessage(message);
+  if (!key) {
+    return;
+  }
+  map.set(key, (map.get(key) || 0) + 1);
+}
+
+function consumeSuppressedMessage(map, message) {
+  const key = normalizeMessage(message);
+  const count = map.get(key) || 0;
+  if (count <= 0) {
+    return false;
+  }
+  if (count === 1) {
+    map.delete(key);
+  } else {
+    map.set(key, count - 1);
+  }
+  return true;
 }
