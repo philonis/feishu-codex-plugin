@@ -9,7 +9,7 @@ export function runCodexResume({ sessionId, cwd, prompt }) {
     mkdirSync(outputDir, { recursive: true });
     const outputPath = join(outputDir, `codex-${Date.now()}.txt`);
     const codexBin = process.env.CODEX_BRIDGE_CODEX_BIN || "codex";
-    const model = process.env.CODEX_BRIDGE_MODEL || "gpt-5.4";
+    const model = process.env.CODEX_BRIDGE_MODEL || "gpt-5.5";
     const args = [
       "exec",
       "resume",

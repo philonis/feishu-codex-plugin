@@ -18,9 +18,8 @@ Install dependencies:
 npm install
 ```
 
-The bridge defaults nested Codex CLI runs to `gpt-5.4` because older global
-Codex CLI builds may not support newer app defaults such as `gpt-5.5`. Override
-with `CODEX_BRIDGE_MODEL` after upgrading your CLI.
+The bridge defaults nested Codex CLI runs to `gpt-5.5`. Override with
+`CODEX_BRIDGE_MODEL` if you want to pin a different model.
 
 ## Handoff A Session
 
