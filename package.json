@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/bridge.mjs run",
     "bridge": "node src/bridge.mjs",
+    "install:prompts": "node src/install-prompts.mjs",
     "status": "node src/bridge.mjs status"
   },
   "dependencies": {

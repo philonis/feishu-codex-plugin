@@ -20,6 +20,20 @@ npm install
 
 ## Handoff A Session
 
+From Codex, use the installed slash prompt:
+
+```text
+/prompts:feishu
+```
+
+Equivalent explicit prompt:
+
+```text
+/prompts:feishu-on
+```
+
+This enables the bridge for the current workspace and the latest Codex session.
+
 Enable the bridge for one Codex session and one Feishu chat:
 
 ```bash
@@ -41,6 +55,18 @@ Codex responses are sent back to the same Feishu chat.
 
 ## Return To Desktop
 
+From Codex:
+
+```text
+/prompts:feishu off
+```
+
+Equivalent explicit prompt:
+
+```text
+/prompts:feishu-off
+```
+
 Disable bridge routing:
 
 ```bash
@@ -55,9 +81,37 @@ You can also disable from Feishu:
 
 Check status:
 
+```text
+/prompts:feishu status
+```
+
+Equivalent explicit prompt:
+
+```text
+/prompts:feishu-status
+```
+
 ```bash
 npm run status
 ```
+
+## Install Codex Slash Prompts
+
+Codex custom prompts live in `$CODEX_HOME/prompts` and are invoked as `/prompts:<name>`.
+
+Install or refresh the prompts:
+
+```bash
+npm run install:prompts
+```
+
+Installed prompts:
+
+- `/prompts:feishu`
+- `/prompts:feishu-on`
+- `/prompts:feishu-off`
+- `/prompts:feishu-status`
+- `/prompts:feishu-test`
 
 ## Commands
 
