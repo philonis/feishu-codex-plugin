@@ -28,14 +28,8 @@ git clone git@github.com:philonis/feishu-codex-plugin.git "$PLUGIN_DIR"
 cd "$PLUGIN_DIR"
 ```
 
-On the original development machine, the checkout path was:
-
-```bash
-__PLUGIN_DIR__
-```
-
-Do not assume that path exists on other machines. Always use the actual checkout
-path as `PLUGIN_DIR`.
+Do not assume any fixed local path exists on other machines. Always use the
+actual checkout path as `PLUGIN_DIR`.
 
 ## What This Plugin Does
 

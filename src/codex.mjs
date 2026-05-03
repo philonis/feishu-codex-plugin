@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 export function runCodexResume({ sessionId, cwd, prompt }) {
@@ -160,13 +160,15 @@ function isNoisyCodexLine(line) {
 }
 
 function logCodexOutput({ stdout, stderr }) {
-  const path = "/absolute/path/to/.codex/feishu-codex-bridge/codex-resume.log";
+  const dir = join(process.env.CODEX_HOME || join(homedir(), ".codex"), "feishu-codex-bridge");
+  const path = join(dir, "codex-resume.log");
   const body = [
     `\n--- ${new Date().toISOString()} ---`,
     stdout ? `[stdout]\n${stdout.trim()}` : "",
     stderr ? `[stderr]\n${stderr.trim()}` : ""
   ].filter(Boolean).join("\n");
   try {
+    mkdirSync(dir, { recursive: true });
     appendFileSync(path, `${body}\n`);
   } catch {
     // Best effort logging only.

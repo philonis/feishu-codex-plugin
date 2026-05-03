@@ -88,18 +88,10 @@ cd "$PLUGIN_DIR"
 npm install
 ```
 
-On the original development machine, the checkout path was:
-
-在原始开发机器上，项目路径是：
-
-```bash
-export PLUGIN_DIR="__PLUGIN_DIR__"
-```
-
 Do not assume that path exists on other machines. Always use the actual checkout
 path.
 
-不要假设其他机器也有这个路径；安装时必须使用真实 checkout 路径。
+不要假设任何固定路径存在；安装时必须使用真实 checkout 路径。
 
 ### 3. Feishu App Setup / 飞书应用配置
 
