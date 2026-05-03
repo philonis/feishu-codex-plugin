@@ -18,7 +18,6 @@ import {
   resolveSessionId,
   writeState
 } from "./state.mjs";
-import { SessionLogForwarder } from "./session-log.mjs";
 
 loadDotEnv();
 
@@ -146,14 +145,12 @@ function stopDaemon() {
 
 async function runDaemon() {
   const feishu = new FeishuClient();
-  const forwarder = new SessionLogForwarder({ feishu });
-  forwarder.start();
 
   const dispatcher = new Lark.EventDispatcher({
     loggerLevel: Lark.LoggerLevel.info
   }).register({
     "im.message.receive_v1": (data) => {
-      enqueueFeishuMessage(data, { feishu, forwarder });
+      enqueueFeishuMessage(data, { feishu });
     }
   });
 
@@ -166,12 +163,10 @@ async function runDaemon() {
   });
 
   process.on("SIGTERM", () => {
-    forwarder.stop();
     wsClient.close({ force: true });
     process.exit(0);
   });
   process.on("SIGINT", () => {
-    forwarder.stop();
     wsClient.close({ force: true });
     process.exit(0);
   });
@@ -197,7 +192,7 @@ function enqueueFeishuMessage(data, context) {
     });
 }
 
-async function handleFeishuMessage(data, { feishu, forwarder }) {
+async function handleFeishuMessage(data, { feishu }) {
   const event = data.event || data;
   const message = event.message || {};
   const chatId = message.chat_id;
@@ -223,8 +218,6 @@ async function handleFeishuMessage(data, { feishu, forwarder }) {
 
   console.log(`[bridge] processing Feishu message: ${messageId || "(no message_id)"}`);
   const workingReaction = await addWorkingReaction(feishu, messageId);
-  const mark = forwarder.mark();
-  forwarder.suppressUserMessage(text);
 
   try {
     const result = await runCodexResume({
@@ -241,12 +234,10 @@ async function handleFeishuMessage(data, { feishu, forwarder }) {
       return;
     }
 
-    if (forwarder.countSince(mark) === 0 && result.finalMessage) {
-      forwarder.suppressAgentMessage(result.finalMessage);
-      await feishu.sendText(chatId, `Codex:\n${result.finalMessage}`);
+    if (result.finalMessage) {
+      await feishu.sendMarkdown(chatId, result.finalMessage);
     }
   } finally {
-    forwarder.forgetMark(mark);
     await removeWorkingReaction(feishu, workingReaction);
     console.log(`[bridge] finished Feishu message: ${messageId || "(no message_id)"}`);
   }

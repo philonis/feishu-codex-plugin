@@ -101,6 +101,36 @@ export class FeishuClient {
     return results;
   }
 
+  async sendMarkdown(chatId, markdown) {
+    const chunks = splitMessage(markdown);
+    const results = [];
+    for (const chunk of chunks) {
+      results.push(await this.apiRequest({
+        method: "POST",
+        path: "/im/v1/messages",
+        query: {
+          receive_id_type: "chat_id"
+        },
+        body: {
+          receive_id: chatId,
+          msg_type: "interactive",
+          content: JSON.stringify({
+            config: {
+              wide_screen_mode: true
+            },
+            elements: [
+              {
+                tag: "markdown",
+                content: chunk
+              }
+            ]
+          })
+        }
+      }));
+    }
+    return results;
+  }
+
   async addReaction(messageId, emojiType = optionalEnv("FEISHU_BRIDGE_WORKING_EMOJI", DEFAULT_WORKING_EMOJI)) {
     const data = await this.apiRequest({
       method: "POST",

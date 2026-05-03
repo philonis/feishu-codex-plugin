@@ -2,7 +2,8 @@
 
 Optional, per-session bridge for using a Feishu bot chat as a temporary mobile control surface for a local Codex session.
 
-The Mac remains the execution host. Feishu only carries prompts, confirmations, status updates, and Codex replies.
+The Mac remains the execution host. Feishu is a temporary remote input/output
+surface for one selected Codex session.
 
 ## Setup
 
@@ -55,16 +56,23 @@ From Feishu, send normal messages to continue the selected Codex session. The br
 codex exec resume <session-id> <your-feishu-message>
 ```
 
-Codex responses are sent back to the same Feishu chat.
+Codex responses are sent back to the same Feishu chat as Markdown card
+messages, so normal Markdown formatting renders in Feishu.
 
 While a Feishu message is being handled, the bridge adds a `Typing` reaction to
 that message and removes it after the Codex run finishes or fails. Override the
 reaction with `FEISHU_BRIDGE_WORKING_EMOJI`.
 
-Feishu inputs are forwarded as plain Codex user messages, so the selected Codex
-session history stays readable on the Mac side. The bridge suppresses echoing
-those same user messages back to Feishu; desktop-originated user messages are
-still mirrored to Feishu.
+Feishu inputs are forwarded as plain Codex user messages through
+`codex exec resume`, so the selected Codex session history stays readable and
+recoverable on the Mac side. Desktop-originated messages are not mirrored to
+Feishu; Feishu only receives replies for prompts sent from Feishu.
+
+Live UI refresh in an already-open Codex Desktop window depends on Codex's
+app-server exposing a control socket. This bridge does not patch or replace any
+Codex Desktop code, so if the desktop app is running without that socket the
+Feishu turn is still persisted to the same session history, but the visible
+window may need to be reopened or resumed to show it.
 
 Incoming Feishu events are acknowledged immediately, deduped by `message_id`,
 and processed serially. This avoids Feishu retrying the same message while a
